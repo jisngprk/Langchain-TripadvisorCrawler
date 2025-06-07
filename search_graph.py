@@ -34,11 +34,6 @@ class Colors:
     RESET = '\033[0m'
 
 
-class URLSelector(BaseModel):
-    selected_urls: list[str] = Field(
-        description="A list of URLs that are relevant to the restaurant and query.")
-
-
 class Review(BaseModel):
     content: str = Field(
         description="A review from the website.")
@@ -78,7 +73,6 @@ class ReivewList(BaseModel):
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash")  # 또는 "gemini-1.5-pro" 등
-llm_url_selector = llm.with_structured_output(URLSelector)
 llm_review_extractor = llm.with_structured_output(ReviewExtractor)
 firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
 app = FirecrawlApp(api_key=firecrawl_api_key)
@@ -164,10 +158,6 @@ def scrape_url(url: str) -> str:
 
 
 def extract_reviews_div(html_content: str) -> str:
-    # print(
-    #     f"{Colors.GREEN}Extracting reviews div from {html_content[:100]}{Colors.RESET}")
-    with open("doc.html", "w") as f:
-        f.write(html_content)
     soup = BeautifulSoup(html_content, 'html.parser')
     # id='Reviews' 우선 검색
     reviews_div = soup.find(lambda tag: tag.name ==
@@ -231,53 +221,9 @@ def search_google(state: SearchState) -> SearchState:
     else:
         return {"initial_review_url": None}
 
-
-def extract_review_urls(state: SearchState) -> SearchState:
-    initial_review_url = state["initial_review_url"]
-
-    if initial_review_url:
-        print(f"{Colors.CYAN}Initial review URL: {initial_review_url}{Colors.RESET}")
-        reviews_div = scrape_url_with_retry(initial_review_url)
-    else:
-        return {"review_urls": []}
-
-    try:
-
-        for _ in range(3):
-            # Prepare the data for R1
-            print(
-                f"{Colors.CYAN}Extracting review urls for {reviews_div[:100]}{Colors.RESET}")
-            query = f"Search {state['restaurant_name']} {state['restaurant_location']} pagination links such that {state['pagination_pattern']} from {state['search_domain']}"
-            response = llm_url_selector.invoke([
-                url_selector_system_message,
-                url_selector_user_message.content.format(
-                    restaurant_name=state["restaurant_name"],
-                    restaurant_location=state["restaurant_location"],
-                    query=query,
-                    html_results=reviews_div
-                )
-            ])
-            print(f"{Colors.GREEN}Response: {response}{Colors.RESET}")
-
-            urls = response.selected_urls
-
-            # Clean up URLs - remove wildcards and trailing slashes
-            cleaned_urls = [url.replace('/*', '').rstrip('/') for url in urls]
-            cleaned_urls = [url for url in cleaned_urls if url]
-            if cleaned_urls:
-                return {"review_urls": cleaned_urls}
-            print(f"{Colors.YELLOW}No valid URLs found. Retrying...{Colors.RESET}")
-            time.sleep(1)
-
-        print(f"{Colors.YELLOW}No valid URLs found.{Colors.RESET}")
-        return {"review_urls": []}
-
-    except Exception as e:
-        print(f"{Colors.RED}Error selecting URLs with R1: {e}{Colors.RESET}")
-        return {"review_urls": []}
-
-
 # Rule-based pagination URL generator
+
+
 def generate_pagination_urls(initial_url: str, max_pages: int = 5) -> list:
     """
     Generate a list of paginated URLs from the initial review URL using the 'or' pattern.
@@ -335,26 +281,24 @@ def extract_reviews(state: SearchState) -> SearchState:
 graph = StateGraph(SearchState)
 graph.set_entry_point("search google")
 graph.add_node("search google", search_google)
-graph.add_node("extract_review_urls", extract_review_urls)
 graph.add_node("extract_reviews", extract_reviews)
 
-graph.add_edge("search google", "extract_review_urls")
-graph.add_conditional_edges("extract_review_urls", continue_crawl)
+graph.add_conditional_edges("search google", continue_crawl)
 graph.add_edge("extract_reviews", END)
 
 search_graph = graph.compile()
 config = RunnableConfig(configurable={"thread_id": random_uuid()})
 
-# Restaurant review: pagination pattern is /Restaurant_Review.*-or\d+-.*\.html$
-# ret = search_graph.invoke({"messages": [],
-#                           "restaurant_name": "Filippi's Pizza Grotto Little Italy",
-#                            "restaurant_location": "San Diego, CA",
-#                            "search_domain": "tripadvisor.com",
-#                            "pagination_pattern": "^/Restaurant_Review.*-or\\d+-.*\\.html$"})
-
-# Hotel review: pagination pattern is /Hotel_Review.*-or\d+-.*\.html$
+# Restaurant review: pagination pattern is /Restaurant_Review.*- or d+-.*\.html$
 ret = search_graph.invoke({"messages": [],
-                          "restaurant_name": "Fairmont Grand Del Mar",
+                          "restaurant_name": "Filippi's Pizza Grotto Little Italy",
                            "restaurant_location": "San Diego, CA",
                            "search_domain": "tripadvisor.com",
-                           "pagination_pattern": "^/Hotel_Review.*-or\\d+-.*\\.html$"})
+                           "pagination_pattern": "^/Restaurant_Review.*-or\\d+-.*\\.html$"})
+
+# # Hotel review: pagination pattern is /Hotel_Review.*-or\d+-.*\.html$
+# ret = search_graph.invoke({"messages": [],
+#                           "restaurant_name": "Fairmont Grand Del Mar",
+#                            "restaurant_location": "San Diego, CA",
+#                            "search_domain": "tripadvisor.com",
+#                            "pagination_pattern": "^/Hotel_Review.*-or\\d+-.*\\.html$"})

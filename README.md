@@ -18,8 +18,8 @@ This project is a restaurant review crawler that extracts review URLs from searc
 First, clone the repository and navigate to the project directory:
 
 ```bash
-git clone https://github.com/yourusername/beautify.git
-cd beautify
+git clone https://github.com/jisngprk/Langchain-TripadvisorCrawler.git
+cd Langchain-TripadvisorCrawler
 ```
 
 Then, install the dependencies:
@@ -37,6 +37,8 @@ GOOGLE_API_KEY=your_google_api_key
 GOOGLE_CSE_ID=your_custom_search_engine_id
 FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
+
+You should add tripadvisor.com into your custom search engine
 
 ## Usage
 
